@@ -1,0 +1,193 @@
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>SAMPLE</title>
+    <script src=zepto.js></script>
+    <script src="https://apis.skplanetx.com/tmap/js?version=1&format=javascript&appKey=42db8068-d80e-308f-b8f4-901db6bef703"></script>
+    <script type="text/javascript">
+
+        var map;
+        var mapW, mapH;     // 지도의 가로, 세로 크기(Pixel단위) 를 지정 합니다.
+
+        var cLonLat, zoom;      //중심 좌표와 지도레벨을 정의 합니다.
+        var tLonLat;    //목적지 좌표
+        var wpBounds = [];
+
+        var setDestination = function(){
+            //set tLonLat
+            //tLonLat = '';
+            tLonLat = { "lon": "14128934.377912", "lat": "4512454.800116" };
+            getCurPosition();
+        };
+
+        var pointGeoListForTest = [];
+        var setRouteInfo = function(start, end){
+            var TYPE_START_POINT = 'SP';
+            var TYPE_GENERAL_POINT = 'GP';
+
+            var fnGetResultData = function(rslt){
+                var result = rslt;
+                var featureList = result.features;
+                $(featureList).forEach(function(feature, index, array){
+                    var geometry = feature.geometry;
+                    var properties = feature.properties;
+
+                    var pointType = properties.pointType;
+                    if(pointType === TYPE_GENERAL_POINT){
+                        var coordinates = geometry.coordinates;
+                        var wpLonlat = new Tmap.LonLat(coordinates[0], coordinates[1]);
+
+                        var radius = 50;
+                        var circle = new Tmap.Geometry.Circle(wpLonlat.lon, wpLonlat.lat, radius);    //unit: M
+                        var bounds = circle.getBounds();
+
+                        wpBounds.push(bounds);
+                    }
+
+                });
+
+                debugger;
+
+            };
+
+            var routeFormat = new Tmap.Format.KML({extractStyles:true, extractAttributes:true});
+            var startName = 'HERE';
+            var endName = 'THERE';
+            var startX = start.lon;
+            var startY = start.lat;
+            var endX = end.lon;
+            var endY = end.lat;
+            var urlStr = "https://apis.skplanetx.com/tmap/routes/pedestrian?version=1";
+            urlStr += "&startX="+startX;
+            urlStr += "&startY="+startY;
+            urlStr += "&endX="+endX;
+            urlStr += "&endY="+endY;
+            urlStr += "&startName="+encodeURIComponent(startName);
+            urlStr += "&endName="+encodeURIComponent(endName);
+            urlStr += "&appKey=42db8068-d80e-308f-b8f4-901db6bef703";
+
+            $.ajax({
+                url: urlStr,
+                success: fnGetResultData
+            });
+        };
+
+        var get3857LonLat = function(coordX, coordY){
+            var pr_3857 = new Tmap.Projection("EPSG:3857"); //EPSG:4326 (WGS84 GEO)
+            var pr_4326 = new Tmap.Projection("EPSG:4326"); //EPSG:4326 (WGS84 GEO)
+
+            return new Tmap.LonLat(coordX, coordY).transform(pr_4326, pr_3857);
+        }
+
+        var setCurPosition = function(position){
+            //1. 좌표계 변환
+            cLonLat = get3857LonLat(position.coords.longitude, position.coords.latitude);
+            //cLonLat = {coordinate: { 'lon': position.coords.longitude, 'lat': position.coords.latitude}};
+            setRouteInfo(cLonLat, tLonLat);
+
+            //테스트용
+            displayRoute(cLonLat, tLonLat);
+        };
+
+        var getCurPosition = function(){
+            var timeoutVal = 10 * 1000 * 1000;
+            if(navigator.geolocation){
+                return navigator.geolocation.getCurrentPosition(setCurPosition, displayError, { enableHighAccuracy: true, timeout: timeoutVal, maximumAge: 0 });
+            }
+        };
+
+        //1. 목적지 받아서 경로정보 담아두기
+        setDestination();
+
+        //2. current Position으로 경로검색 -- watchPosition으로 대체
+        var id, options;
+        id = navigator.geolocation.watchPosition(success, error, options);
+
+        function success(pos) {
+            isContainsGP(pos);
+            navigator.geolocation.clearWatch(id);
+        };
+
+        var error = function(){
+            //TODO
+        };
+
+        options = {
+            enableHighAccuracy: false,
+            timeout: 5000,
+            maximumAge: 0
+        };
+
+        //for test
+        var displayRoute = function(start, end){
+            //1. 지도에 출력(테스트용)
+            //2. map설정
+            zoom = 19;    // zoom level입니다.  0~19 레벨을 서비스 하고 있습니다.
+            mapW = '800px';  // 지도의 가로 크기 입니다.
+            mapH = '700px';  // 지도의 세로 크기 입니다.
+            map = new Tmap.Map({div:'map_div', width:mapW, height:mapH, animation:true});
+
+            var routeFormat = new Tmap.Format.KML({extractStyles:true, extractAttributes:true});
+            var startName = 'HERE';
+            var endName = 'THERE';
+            var startX = start.lon;
+            var startY = start.lat;
+            var endX = end.lon;
+            var endY = end.lat;
+            var urlStr = "https://apis.skplanetx.com/tmap/routes/pedestrian?version=1&format=xml";
+            urlStr += "&startX="+startX;
+            urlStr += "&startY="+startY;
+            urlStr += "&endX="+endX;
+            urlStr += "&endY="+endY;
+            urlStr += "&startName="+encodeURIComponent(startName);
+            urlStr += "&endName="+encodeURIComponent(endName);
+            urlStr += "&appKey=42db8068-d80e-308f-b8f4-901db6bef703";
+
+            var prtcl = new Tmap.Protocol.HTTP({
+                url: urlStr,
+                format:routeFormat
+            });
+            var routeLayer = new Tmap.Layer.Vector("route", {protocol:prtcl, strategies:[new Tmap.Strategy.Fixed()]});
+
+            routeLayer.events.register("featuresadded", routeLayer, onDrawnFeatures);
+            map.addLayer(routeLayer);
+
+            debugger;
+
+        };
+
+        var isContainsGP = function(pos){
+            //cLonLat = {coordinate: { 'lon': pos.coords.longitude, 'lat': pos.coords.latitude}};
+
+            var curPointLonLat = new Tmap.LonLat(pos.coords.longitude, pos.coords.latitude);
+            var curPoint = curPointLonLat.clone().transform("EPSG:3857", "EPSG:4326");
+
+            $(wpBounds).forEach(function(bound, index, array){
+                var isContainsLonLat = bound.containsLonLat(cLonLat);
+                if(isContainsLonLat){
+                    //show alarm
+                    alert('show alarm!');
+                }
+            });
+
+        };
+
+        var displayError = function(){
+        };
+
+
+        function init() {
+
+        }
+
+        //경로 그리기 후 해당영역으로 줌
+        function onDrawnFeatures(e){
+            map.zoomToExtent(this.getDataExtent());
+        }
+    </script>
+</head>
+<body onload="init()">
+<div id="map_div">
+</div>
+</body>
+</html>
